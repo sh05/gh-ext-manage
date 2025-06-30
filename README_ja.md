@@ -1,16 +1,16 @@
 # gh-ext-manage
 
-GitHub CLI Extension Manager - GitHub CLI拡張を簡単に管理するためのツール
+GitHub CLI Extension Manager - GitHub CLI拡張の宣言的管理ツール
 
 ## 概要
 
-`gh-ext-manage`は、GitHub CLI拡張の宣言的な管理を可能にするGitHub CLI拡張です。
+`gh-ext-manage`は、GitHub CLI拡張の宣言的管理を可能にするGitHub CLI拡張です。
 
-- 設定ファイルに記述されている拡張の一括インストール
-  - 下記も実現します
-    - エイリアス設定
-    - バージョン管理
-- 手動でインストールした拡張の設定ファイルへの反映
+主な機能:
+- 設定ファイルからの拡張の一括インストール
+  - エイリアス設定のサポート
+  - バージョン管理
+- 手動でインストールした拡張の設定ファイルへの同期
 
 ## インストール
 
@@ -18,7 +18,7 @@ GitHub CLI Extension Manager - GitHub CLI拡張を簡単に管理するための
 gh extension install sh05/gh-ext-manage
 ```
 
-## 必要な依存関係
+## 依存関係
 
 - [GitHub CLI](https://cli.github.com/) (gh)
 - [jq](https://stedolan.github.io/jq/) (JSON処理用)
@@ -31,10 +31,10 @@ gh extension install sh05/gh-ext-manage
 # インストール済み拡張の一覧表示
 gh ext-manage list
 
-# 拡張のインストール
+# 設定から拡張をインストール
 gh ext-manage install
 
-# インストール済み拡張の設定ファイルへの同期
+# 手動でインストールした拡張を設定ファイルに同期
 gh ext-manage sync
 
 # 全拡張の更新
@@ -46,7 +46,7 @@ gh ext-manage update <拡張名>
 # ヘルプの表示
 gh ext-manage help
 
-# この拡張のバージョン情報の表示
+# バージョン情報の表示
 gh ext-manage version
 ```
 
@@ -59,7 +59,44 @@ gh ext-manage version
 - ⚙️ **宣言的管理**: エイリアス設定やバージョン管理に対応
 - ✨ **直感的UI**: 絵文字とカラーを使った分かりやすい出力
 
+## 設定
+
+設定ファイルは `~/.config/gh-ext-manage/config.json` に配置されます。
+
+### 設定例
+
+```json
+{
+  "extensions": [
+    {"repo": "github/gh-copilot"},
+    {"repo": "dlvhdr/gh-dash", "alias": "dashboard"},
+    {"repo": "mislav/gh-branch"},
+    {"repo": "vilmibm/gh-screensaver"}
+  ]
+}
+```
+
+## 言語サポート
+
+この拡張は英語と日本語に対応しています。言語はシステムのロケールから自動検出されます:
+
+- 英語 (デフォルト): `LANG=en_US.UTF-8` または `LC_ALL=en_US.UTF-8`
+- 日本語: `LANG=ja_JP.UTF-8` または `LC_ALL=ja_JP.UTF-8`
+
+環境変数を設定して特定の言語を強制することも可能です:
+
+```bash
+# 英語を強制
+LANG=en_US.UTF-8 gh ext-manage list
+
+# 日本語を強制
+LANG=ja_JP.UTF-8 gh ext-manage list
+```
+
+## ドキュメント
+
+- [English README](README.md) - English documentation
+
 ## ライセンス
 
 MIT License
-

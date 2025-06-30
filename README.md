@@ -68,9 +68,10 @@ The configuration file is located at `~/.config/gh-ext-manage/config.json`.
 ```json
 {
   "extensions": [
-    {"repo": "cli/gh-copilot"},
-    {"repo": "github/gh-actions"},
-    {"repo": "dlvhdr/gh-dash", "alias": "dashboard"}
+    {"repo": "github/gh-copilot"},
+    {"repo": "dlvhdr/gh-dash", "alias": "dashboard"},
+    {"repo": "mislav/gh-branch"},
+    {"repo": "vilmibm/gh-screensaver"}
   ]
 }
 ```
