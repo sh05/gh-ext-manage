@@ -1,0 +1,4 @@
+name: ext-manage
+description: GitHub CLI Extension Manager - Declarative management of GitHub CLI extensions
+author: sh05
+tag: latest
