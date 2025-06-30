@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+
+set -e
+
+VERSION="1.0.0"
+CONFIG_FILE="$HOME/.config/gh-ext-manage/config.json"
+
+# 言語設定の検出
+detect_language() {
+    local lang="${LANG:-${LC_ALL:-en_US.UTF-8}}"
+    case "$lang" in
+        ja_JP*|ja-JP*|ja*) echo "ja" ;;
+        *) echo "en" ;;
+    esac
+}
+
+LANGUAGE=$(detect_language)
+
+# カラー設定
+if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then
+    RED=$(tput setaf 1)
+    GREEN=$(tput setaf 2)
+    YELLOW=$(tput setaf 3)
+    BLUE=$(tput setaf 4)
+    CYAN=$(tput setaf 6)
+    BOLD=$(tput bold)
+    RESET=$(tput sgr0)
+else
+    RED=""
+    GREEN=""
+    YELLOW=""
+    BLUE=""
+    CYAN=""
+    BOLD=""
+    RESET=""
+fi
+
+# 多言語メッセージ
+get_message() {
+    local key="$1"
+    case "$LANGUAGE" in
+        "ja")
+            case "$key" in
+                "missing_deps") echo "❌ 必要な依存関係が不足しています:" ;;
+                "missing_deps_footer") echo "依存関係をインストールしてから再度お試しください。" ;;
+                "installed_extensions") echo "📦 インストール済みGitHub CLI拡張" ;;
+                "no_extensions_installed") echo "⚠️  インストールされている拡張がありません" ;;
+                "repository") echo "📍 リポジトリ:" ;;
+                "commit") echo "🆔 コミット:" ;;
+                "installing_extensions") echo "📥 拡張のインストールを開始します" ;;
+                "no_extensions_in_config") echo "⚠️  設定ファイルに拡張が定義されていません" ;;
+                "config_file") echo "設定ファイル:" ;;
+                "repo_not_specified") echo "❌ リポジトリが指定されていない拡張をスキップしました" ;;
+                "already_installed") echo "⏭️  %s は既にインストールされています" ;;
+                "installing") echo "📦 %s をインストール中..." ;;
+                "install_success") echo "✅ %s のインストールが完了しました" ;;
+                "install_failed") echo "❌ %s のインストールに失敗しました" ;;
+                "install_summary") echo "インストール完了: %d個の拡張をインストール, %d個をスキップ" ;;
+                "syncing_extensions") echo "🔄 インストール済み拡張を設定ファイルに同期します" ;;
+                "no_extensions_to_sync") echo "⚠️  同期する拡張がありません" ;;
+                "sync_success") echo "✅ %d個の拡張を設定ファイルに同期しました" ;;
+                "updating_extension") echo "⬆️  拡張 '%s' を更新します" ;;
+                "update_success") echo "✅ %s の更新が完了しました" ;;
+                "update_failed") echo "❌ %s の更新に失敗しました" ;;
+                "updating_all") echo "⬆️  全ての拡張を更新します" ;;
+                "update_all_success") echo "✅ 全ての拡張の更新が完了しました" ;;
+                "update_all_failed") echo "❌ 拡張の更新中にエラーが発生しました" ;;
+                "no_command") echo "❌ コマンドが指定されていません" ;;
+                "unknown_command") echo "❌ 不明なコマンド: %s" ;;
+                *) echo "$key" ;;
+            esac
+            ;;
+        *)
+            case "$key" in
+                "missing_deps") echo "❌ Missing required dependencies:" ;;
+                "missing_deps_footer") echo "Please install the dependencies and try again." ;;
+                "installed_extensions") echo "📦 Installed GitHub CLI Extensions" ;;
+                "no_extensions_installed") echo "⚠️  No extensions are installed" ;;
+                "repository") echo "📍 Repository:" ;;
+                "commit") echo "🆔 Commit:" ;;
+                "installing_extensions") echo "📥 Starting extension installation" ;;
+                "no_extensions_in_config") echo "⚠️  No extensions defined in configuration file" ;;
+                "config_file") echo "Configuration file:" ;;
+                "repo_not_specified") echo "❌ Skipped extension with no repository specified" ;;
+                "already_installed") echo "⏭️  %s is already installed" ;;
+                "installing") echo "📦 Installing %s..." ;;
+                "install_success") echo "✅ Successfully installed %s" ;;
+                "install_failed") echo "❌ Failed to install %s" ;;
+                "install_summary") echo "Installation complete: %d extensions installed, %d skipped" ;;
+                "syncing_extensions") echo "🔄 Syncing installed extensions to configuration file" ;;
+                "no_extensions_to_sync") echo "⚠️  No extensions to sync" ;;
+                "sync_success") echo "✅ Synced %d extensions to configuration file" ;;
+                "updating_extension") echo "⬆️  Updating extension '%s'" ;;
+                "update_success") echo "✅ Successfully updated %s" ;;
+                "update_failed") echo "❌ Failed to update %s" ;;
+                "updating_all") echo "⬆️  Updating all extensions" ;;
+                "update_all_success") echo "✅ Successfully updated all extensions" ;;
+                "update_all_failed") echo "❌ Error occurred while updating extensions" ;;
+                "no_command") echo "❌ No command specified" ;;
+                "unknown_command") echo "❌ Unknown command: %s" ;;
+                *) echo "$key" ;;
+            esac
+            ;;
+    esac
+}
+
+# 依存関係チェック
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v gh >/dev/null 2>&1; then
+        missing_deps+=("gh (GitHub CLI)")
+    fi
+    
+    if ! command -v jq >/dev/null 2>&1; then
+        missing_deps+=("jq")
+    fi
+    
+    if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        echo "${RED}$(get_message "missing_deps")${RESET}"
+        for dep in "${missing_deps[@]}"; do
+            echo "  - $dep"
+        done
+        echo ""
+        get_message "missing_deps_footer"
+        exit 1
+    fi
+}
+
+# 設定ディレクトリとファイルの初期化
+init_config() {
+    local config_dir
+    config_dir=$(dirname "$CONFIG_FILE")
+    
+    if [[ ! -d "$config_dir" ]]; then
+        mkdir -p "$config_dir"
+    fi
+    
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        cat > "$CONFIG_FILE" << 'EOF'
+{
+  "extensions": []
+}
+EOF
+    fi
+}
+
+# インストール済み拡張の一覧表示
+cmd_list() {
+    echo "${BLUE}$(get_message "installed_extensions")${RESET}"
+    echo ""
+    
+    local extensions
+    extensions=$(gh extension list 2>/dev/null || true)
+    
+    if [[ -z "$extensions" ]]; then
+        echo "${YELLOW}$(get_message "no_extensions_installed")${RESET}"
+        return 0
+    fi
+    
+    echo "$extensions" | while IFS=$'\t' read -r name repo commit; do
+        if [[ -n "$name" ]]; then
+            echo "${GREEN}${BOLD}$name${RESET}"
+            echo "  $(get_message "repository") $repo"
+            echo "  $(get_message "commit") $commit"
+            echo ""
+        fi
+    done
+}
+
+# 拡張のインストール
+cmd_install() {
+    init_config
+    
+    echo "${BLUE}$(get_message "installing_extensions")${RESET}"
+    echo ""
+    
+    local extensions
+    extensions=$(jq -r '.extensions[]' "$CONFIG_FILE" 2>/dev/null || echo "")
+    
+    if [[ -z "$extensions" ]]; then
+        echo "${YELLOW}$(get_message "no_extensions_in_config")${RESET}"
+        echo "$(get_message "config_file") $CONFIG_FILE"
+        return 0
+    fi
+    
+    local installed_count=0
+    local skipped_count=0
+    local temp_file="/tmp/gh-ext-manage-counts.$$"
+    echo "0 0" > "$temp_file"
+    
+    echo "$extensions" | jq -r '. | @json' | while read -r ext_json; do
+        local repo
+        
+        repo=$(echo "$ext_json" | jq -r '.repo // empty')
+        
+        if [[ -z "$repo" ]]; then
+            echo "${RED}$(get_message "repo_not_specified")${RESET}"
+            continue
+        fi
+        
+        local ext_name
+        ext_name=$(basename "$repo" | sed 's/^gh-//')
+        
+        # 既にインストールされているかチェック
+        if gh extension list | grep -q "$ext_name"; then
+            printf "%s\n" "${YELLOW}$(get_message "already_installed" | sed "s/%s/$ext_name/g")${RESET}"
+            read -r installed_count skipped_count < "$temp_file"
+            echo "$installed_count $((skipped_count + 1))" > "$temp_file"
+            continue
+        fi
+        
+        printf "%s\n" "${CYAN}$(get_message "installing" | sed "s/%s/$repo/g")${RESET}"
+        
+        if gh extension install "$repo"; then
+            printf "%s\n" "${GREEN}$(get_message "install_success" | sed "s/%s/$ext_name/g")${RESET}"
+            read -r installed_count skipped_count < "$temp_file"
+            echo "$((installed_count + 1)) $skipped_count" > "$temp_file"
+        else
+            printf "%s\n" "${RED}$(get_message "install_failed" | sed "s/%s/$ext_name/g")${RESET}"
+        fi
+        echo ""
+    done
+    
+    read -r installed_count skipped_count < "$temp_file"
+    rm -f "$temp_file"
+    
+    printf "%s\n" "${GREEN}${BOLD}$(get_message "install_summary" | sed "s/%s/$installed_count/" | sed "s/%s/$skipped_count/")${RESET}"
+}
+
+# 手動インストール拡張の設定ファイル同期
+cmd_sync() {
+    init_config
+    
+    echo "${BLUE}$(get_message "syncing_extensions")${RESET}"
+    echo ""
+    
+    local extensions
+    extensions=$(gh extension list 2>/dev/null || true)
+    
+    if [[ -z "$extensions" ]]; then
+        echo "${YELLOW}$(get_message "no_extensions_to_sync")${RESET}"
+        return 0
+    fi
+    
+    local repos=()
+    while IFS=$'\t' read -r name repo commit; do
+        if [[ -n "$name" && -n "$repo" ]]; then
+            repos+=("$repo")
+        fi
+    done <<< "$extensions"
+    
+    local config_json='{"extensions":['
+    local first=true
+    
+    for repo in "${repos[@]}"; do
+        if [[ "$first" == "true" ]]; then
+            first=false
+        else
+            config_json+=','
+        fi
+        config_json+="{\"repo\":\"$repo\"}"
+    done
+    config_json+=']}'
+    
+    echo "$config_json" | jq '.' > "$CONFIG_FILE"
+    
+    printf "%s\n" "${GREEN}$(get_message "sync_success" | sed "s/%s/${#repos[@]}/g")${RESET}"
+    echo "$(get_message "config_file") $CONFIG_FILE"
+}
+
+# 拡張の更新
+cmd_update() {
+    local target_extension="$1"
+    
+    if [[ -n "$target_extension" ]]; then
+        printf "%s\n" "${BLUE}$(get_message "updating_extension" | sed "s/%s/$target_extension/g")${RESET}"
+        echo ""
+        
+        if gh extension upgrade "$target_extension"; then
+            printf "%s\n" "${GREEN}$(get_message "update_success" | sed "s/%s/$target_extension/g")${RESET}"
+        else
+            printf "%s\n" "${RED}$(get_message "update_failed" | sed "s/%s/$target_extension/g")${RESET}"
+            exit 1
+        fi
+    else
+        echo "${BLUE}$(get_message "updating_all")${RESET}"
+        echo ""
+        
+        if gh extension upgrade --all; then
+            echo "${GREEN}$(get_message "update_all_success")${RESET}"
+        else
+            echo "${RED}$(get_message "update_all_failed")${RESET}"
+            exit 1
+        fi
+    fi
+}
+
+# ヘルプの表示
+cmd_help() {
+    if [[ "$LANGUAGE" == "ja" ]]; then
+        cat << EOF
+${BOLD}GitHub CLI Extension Manager${RESET} - GitHub CLI拡張を簡単に管理
+
+${BOLD}使用方法:${RESET}
+  gh ext-manage <コマンド> [オプション]
+
+${BOLD}コマンド:${RESET}
+  ${GREEN}list${RESET}              インストール済み拡張の一覧表示
+  ${GREEN}install${RESET}           設定ファイルから拡張を一括インストール
+  ${GREEN}sync${RESET}              手動インストール拡張を設定ファイルに同期
+  ${GREEN}update${RESET} [拡張名]    拡張の更新（拡張名省略時は全て更新）
+  ${GREEN}help${RESET}              このヘルプを表示
+  ${GREEN}version${RESET}           バージョン情報を表示
+
+${BOLD}設定ファイル:${RESET}
+  $CONFIG_FILE
+
+${BOLD}設定例:${RESET}
+  {
+    "extensions": [
+      {"repo": "cli/gh-copilot"},
+      {"repo": "github/gh-actions"},
+      {"repo": "dlvhdr/gh-dash", "alias": "dashboard"}
+    ]
+  }
+
+${BOLD}依存関係:${RESET}
+  - GitHub CLI (gh)
+  - jq
+
+GitHub: https://github.com/sh05/gh-ext-manage
+EOF
+    else
+        cat << EOF
+${BOLD}GitHub CLI Extension Manager${RESET} - Declarative management of GitHub CLI extensions
+
+${BOLD}Usage:${RESET}
+  gh ext-manage <command> [options]
+
+${BOLD}Commands:${RESET}
+  ${GREEN}list${RESET}              List installed extensions
+  ${GREEN}install${RESET}           Install extensions from configuration file
+  ${GREEN}sync${RESET}              Sync manually installed extensions to config
+  ${GREEN}update${RESET} [name]     Update extensions (all if name omitted)
+  ${GREEN}help${RESET}              Show this help
+  ${GREEN}version${RESET}           Show version information
+
+${BOLD}Configuration File:${RESET}
+  $CONFIG_FILE
+
+${BOLD}Example Configuration:${RESET}
+  {
+    "extensions": [
+      {"repo": "cli/gh-copilot"},
+      {"repo": "github/gh-actions"},
+      {"repo": "dlvhdr/gh-dash", "alias": "dashboard"}
+    ]
+  }
+
+${BOLD}Dependencies:${RESET}
+  - GitHub CLI (gh)
+  - jq
+
+GitHub: https://github.com/sh05/gh-ext-manage
+EOF
+    fi
+}
+
+# バージョン情報の表示
+cmd_version() {
+    echo "${BOLD}gh-ext-manage${RESET} version $VERSION"
+    echo ""
+    echo "GitHub CLI Extension Manager"
+    echo "Copyright (c) 2024"
+    echo "MIT License"
+}
+
+# メイン処理
+main() {
+    check_dependencies
+    
+    case "${1:-}" in
+        "list")
+            cmd_list
+            ;;
+        "install")
+            cmd_install
+            ;;
+        "sync")
+            cmd_sync
+            ;;
+        "update")
+            cmd_update "$2"
+            ;;
+        "help"|"--help"|"-h")
+            cmd_help
+            ;;
+        "version"|"--version"|"-v")
+            cmd_version
+            ;;
+        "")
+            echo "${RED}$(get_message "no_command")${RESET}"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+        *)
+            printf "%s\n" "${RED}$(get_message "unknown_command" | sed "s/%s/$1/g")${RESET}"
+            echo ""
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
